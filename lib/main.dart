@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const MyApp());
 }
+
+const platform = MethodChannel('samples.flutter.dev/battery');
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -68,6 +72,22 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  // Get battery level.
+  String _batteryLevel = 'Unknown battery level.';
+  Future<void> _getBatteryLevel() async {
+    String batteryLevel;
+    try {
+      final result = await platform.invokeMethod<int>('getBatteryLevel');
+      batteryLevel = 'Battery level at $result % .';
+    } on PlatformException catch (e) {
+      batteryLevel = "Failed to get battery level: '${e.message}'.";
+    }
+
+    setState(() {
+      _batteryLevel = batteryLevel;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called, for instance as done
@@ -112,6 +132,11 @@ class _MyHomePageState extends State<MyHomePage> {
               '$_counter',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
+            ElevatedButton(
+              onPressed: _getBatteryLevel,
+              child: const Text('Get Battery Level'),
+            ),
+            Text(_batteryLevel),
           ],
         ),
       ),

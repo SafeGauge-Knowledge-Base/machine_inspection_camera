@@ -2,6 +2,15 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        maven {
+            url 'http://nexus.arashivision.com:9999/repository/maven-public/'
+            credentials {
+                username = 'deployment'
+                password = 'test123'
+            }
+            allowInsecureProtocol = true
+        }
+
     }
 }
 
