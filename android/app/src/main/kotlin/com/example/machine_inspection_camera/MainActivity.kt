@@ -1,7 +1,13 @@
 package com.example.machine_inspection_camera
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
+import android.os.Build.VERSION
+import android.os.Build.VERSION_CODES
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -22,6 +28,14 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getBatteryLevel" -> {
+                    val batteryLevel = getBatteryLevel()
+                    if (batteryLevel != -1) {
+                        result.success(batteryLevel)
+                    } else {
+                        result.error("UNAVAILABLE", "Battery level not available.", null)
+                    }
+                }
                 "startBleScan" -> {
                     if (checkPermissions()) {
                         startBleScan()
@@ -116,4 +130,15 @@ class MainActivity : FlutterActivity() {
     private fun disconnectBle() {
         InstaCameraManager.getInstance().disconnectBle()
     }
+
+private fun getBatteryLevel(): Int {
+    return if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    } else {
+        val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    }
+}
+
 }
