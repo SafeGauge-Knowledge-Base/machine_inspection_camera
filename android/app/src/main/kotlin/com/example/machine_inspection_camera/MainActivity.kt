@@ -20,9 +20,7 @@ import com.clj.fastble.data.BleDevice
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "samples.flutter.dev/ble"
     private val REQUEST_PERMISSION_CODE = 100
-
-    // List to store scanned BLE devices
-    private var scannedDevices: List<BleDevice> = listOf()
+    private val scannedDevices = mutableListOf<BleDevice>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -50,20 +48,30 @@ class MainActivity : FlutterActivity() {
                     result.success("Scanning stopped")
                 }
                 "connectBle" -> {
-                    val deviceName = call.argument<String>("deviceName")
-                    if (deviceName != null) {
-                        connectBle(deviceName)
-                        result.success("Connecting to $deviceName")
-                    } else {
-                        result.error("INVALID_ARGUMENT", "Device name is required", null)
-                    }
+                    val deviceId = call.argument<String>("deviceId")
+                    connectBle(deviceId)
+                    result.success("Connecting to device with ID: $deviceId")
                 }
                 "disconnectBle" -> {
                     disconnectBle()
                     result.success("Disconnected")
                 }
+                "getScannedDevices" -> {
+                    val devices = scannedDevices.map { "${it.name} (${it.mac})" }
+                    result.success(devices)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun getBatteryLevel(): Int {
+        return if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
+            val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        } else {
+            val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         }
     }
 
@@ -90,6 +98,7 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startBleScan() {
+        scannedDevices.clear()
         InstaCameraManager.getInstance().setScanBleListener(object : IScanBleListener {
             override fun onScanStartSuccess() {
                 // Handle scan start success
@@ -100,13 +109,11 @@ class MainActivity : FlutterActivity() {
             }
 
             override fun onScanning(bleDevice: BleDevice) {
-                // Add the scanned device to the list
-                scannedDevices = scannedDevices + bleDevice
+                scannedDevices.add(bleDevice)
             }
 
             override fun onScanFinish(bleDeviceList: List<BleDevice>) {
-                // Update the scanned devices list when scan is finished
-                scannedDevices = bleDeviceList
+                // Handle scan finish
             }
         })
         InstaCameraManager.getInstance().startBleScan(30_000) // Scan for 30 seconds
@@ -116,29 +123,16 @@ class MainActivity : FlutterActivity() {
         InstaCameraManager.getInstance().stopBleScan()
     }
 
-    private fun connectBle(deviceName: String) {
-        // Find the BleDevice by its name
-        val bleDevice = scannedDevices.find { it.name == deviceName }
-        
+    private fun connectBle(deviceId: String?) {
+        val bleDevice = scannedDevices.find { it.mac == deviceId }
         if (bleDevice != null) {
             InstaCameraManager.getInstance().connectBle(bleDevice)
         } else {
-            println("Device with name $deviceName not found")
+            println("Device with ID $deviceId not found")
         }
     }
 
     private fun disconnectBle() {
         InstaCameraManager.getInstance().disconnectBle()
     }
-
-private fun getBatteryLevel(): Int {
-    return if (VERSION.SDK_INT >= VERSION_CODES.LOLLIPOP) {
-        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    } else {
-        val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-    }
-}
-
 }
