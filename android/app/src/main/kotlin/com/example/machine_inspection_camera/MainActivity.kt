@@ -15,6 +15,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import com.arashivision.sdkcamera.camera.InstaCameraManager
 import com.arashivision.sdkcamera.camera.callback.IScanBleListener
+import com.arashivision.sdkcamera.camera.callback.IPreviewStatusListener
+import com.arashivision.insta360.basecamera.camera.BaseCamera;
 import com.arashivision.sdk.demo.util.CameraBindNetworkManager
 import com.clj.fastble.data.BleDevice
 
@@ -59,6 +61,9 @@ class MainActivity : FlutterActivity() {
                 }
                 "connectByWiFi" -> {
                     connectByWiFi(result)
+                }
+                "startPreview" -> {
+                    startPreview(result)
                 }
                 "getScannedDevices" -> {
                     val devices = scannedDevices.map { "${it.name} (${it.mac})" }
@@ -140,17 +145,52 @@ class MainActivity : FlutterActivity() {
         InstaCameraManager.getInstance().disconnectBle()
     }
 
-private fun connectByWiFi(result: MethodChannel.Result) {
-    CameraBindNetworkManager.getInstance(this).bindNetwork(object : CameraBindNetworkManager.IBindNetWorkCallback {
-        override fun onResult(errorCode: CameraBindNetworkManager.ErrorCode) {
-            if (errorCode == CameraBindNetworkManager.ErrorCode.OK) {
-                InstaCameraManager.getInstance().openCamera(InstaCameraManager.CONNECT_TYPE_WIFI)
-                result.success("Connected via Wi-Fi")
-            } else {
-                result.error("WIFI_ERROR", "Failed to connect via Wi-Fi. Error code: $errorCode", null)
+    private fun connectByWiFi(result: MethodChannel.Result) {
+        CameraBindNetworkManager.getInstance(this).bindNetwork(object : CameraBindNetworkManager.IBindNetWorkCallback {
+            override fun onResult(errorCode: CameraBindNetworkManager.ErrorCode) {
+                if (errorCode == CameraBindNetworkManager.ErrorCode.OK) {
+                    InstaCameraManager.getInstance().openCamera(InstaCameraManager.CONNECT_TYPE_WIFI)
+                    result.success("Connected via Wi-Fi")
+                } else {
+                    result.error("WIFI_ERROR", "Failed to connect via Wi-Fi. Error code: $errorCode", null)
+                }
             }
-        }
-    })
+        })
+    }
+
+   private fun startPreview(result: MethodChannel.Result) {
+    try {
+        println("Starting preview...")  // Print when starting the preview
+
+        InstaCameraManager.getInstance().setPreviewStatusChangedListener(object : IPreviewStatusListener {
+            override fun onOpening() {
+                println("Preview is opening")  // Print when preview is opening
+                result.success("Preview is opening")
+            }
+
+            override fun onOpened() {
+                println("Preview started successfully")  // Print when preview has started
+                result.success("Preview started")
+            }
+
+            override fun onIdle() {
+                println("Preview is idle")  // Print when preview is idle
+                // Handle preview idle state
+            }
+
+            override fun onError() {
+                println("Preview failed to start")  // Print when there is an error
+                result.error("PREVIEW_ERROR", "Preview failed to start", null)
+            }
+        })
+
+        // Start the preview stream
+        println("Calling startPreviewStream()...")  // Print before starting the preview stream
+        InstaCameraManager.getInstance().startPreviewStream()
+    } catch (e: Exception) {
+        println("Exception while starting preview: ${e.message}")  // Print the exception message
+        result.error("PREVIEW_ERROR", "Failed to start preview: ${e.message}", null)
+    }
 }
 
 

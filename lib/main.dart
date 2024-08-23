@@ -74,6 +74,15 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> _startPreview() async {
+    try {
+      final result = await platform.invokeMethod('startPreview');
+      print(result); // "Preview started"
+    } on PlatformException catch (e) {
+      print("Failed to start preview: '${e.message}'.");
+    }
+  }
+
   Future<void> _getScannedDevices() async {
     try {
       final List<dynamic> devices =
@@ -154,6 +163,10 @@ class _MyHomePageState extends State<MyHomePage> {
             ElevatedButton(
               onPressed: _connectByWiFi,
               child: const Text('Connect via Wi-Fi'),
+            ),
+            ElevatedButton(
+              onPressed: _startPreview,
+              child: const Text('Start Preview'),
             ),
             if (_devices.isNotEmpty)
               Expanded(
