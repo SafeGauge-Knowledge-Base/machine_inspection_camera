@@ -1,0 +1,3 @@
+maven_downloads:
+  source_deps:
+    - 'com.arashivision.sdk:sdkcamera:1.6.6_flow_2'

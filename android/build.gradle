@@ -2,14 +2,6 @@ allprojects {
     repositories {
         google()
         mavenCentral()
-         maven {
-            url 'http://nexus.arashivision.com:9999/repository/maven-public/'
-            allowInsecureProtocol = true  // This line opts in to allow insecure protocols
-            credentials {
-               username = 'deployment'
-               password = 'test123'
-            }
-         }
     }
 }
 
