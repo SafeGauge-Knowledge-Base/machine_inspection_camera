@@ -65,6 +65,15 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> _connectByWiFi() async {
+    try {
+      final result = await platform.invokeMethod('connectByWiFi');
+      print(result); // "Connected via Wi-Fi"
+    } on PlatformException catch (e) {
+      print("Failed to connect by Wi-Fi: '${e.message}'.");
+    }
+  }
+
   Future<void> _getScannedDevices() async {
     try {
       final List<dynamic> devices =
@@ -142,6 +151,10 @@ class _MyHomePageState extends State<MyHomePage> {
               child: const Text('Get Battery Level'),
             ),
             Text(_batteryLevel),
+            ElevatedButton(
+              onPressed: _connectByWiFi,
+              child: const Text('Connect via Wi-Fi'),
+            ),
             if (_devices.isNotEmpty)
               Expanded(
                 child: ListView.builder(

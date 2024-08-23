@@ -15,6 +15,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import com.arashivision.sdkcamera.camera.InstaCameraManager
 import com.arashivision.sdkcamera.camera.callback.IScanBleListener
+import com.arashivision.sdk.demo.util.CameraBindNetworkManager
 import com.clj.fastble.data.BleDevice
 
 class MainActivity : FlutterActivity() {
@@ -55,6 +56,9 @@ class MainActivity : FlutterActivity() {
                 "disconnectBle" -> {
                     disconnectBle()
                     result.success("Disconnected")
+                }
+                "connectByWiFi" -> {
+                    connectByWiFi(result)
                 }
                 "getScannedDevices" -> {
                     val devices = scannedDevices.map { "${it.name} (${it.mac})" }
@@ -135,4 +139,19 @@ class MainActivity : FlutterActivity() {
     private fun disconnectBle() {
         InstaCameraManager.getInstance().disconnectBle()
     }
+
+private fun connectByWiFi(result: MethodChannel.Result) {
+    CameraBindNetworkManager.getInstance(this).bindNetwork(object : CameraBindNetworkManager.IBindNetWorkCallback {
+        override fun onResult(errorCode: CameraBindNetworkManager.ErrorCode) {
+            if (errorCode == CameraBindNetworkManager.ErrorCode.OK) {
+                InstaCameraManager.getInstance().openCamera(InstaCameraManager.CONNECT_TYPE_WIFI)
+                result.success("Connected via Wi-Fi")
+            } else {
+                result.error("WIFI_ERROR", "Failed to connect via Wi-Fi. Error code: $errorCode", null)
+            }
+        }
+    })
+}
+
+
 }
