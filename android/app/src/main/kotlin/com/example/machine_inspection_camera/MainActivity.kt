@@ -186,7 +186,11 @@ class MainActivity : FlutterActivity() {
 
         // Start the preview stream
         println("Calling startPreviewStream()...")  // Print before starting the preview stream
-        InstaCameraManager.getInstance().startPreviewStream()
+        InstaCameraManager.getInstance().startPreviewStream().also {
+            println("startPreviewStream() returned: $it")  // Print the return value of startPreviewStream()
+        }
+
+         
     } catch (e: Exception) {
         println("Exception while starting preview: ${e.message}")  // Print the exception message
         result.error("PREVIEW_ERROR", "Failed to start preview: ${e.message}", null)
