@@ -1,0 +1,9 @@
+output:
+  dart:
+    path: lib/example.dart
+    structure: single_file
+
+source_path:
+  - 'java/'
+classes:
+  - 'com.example.machine_inspection_camera'

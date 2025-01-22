@@ -1,24 +1,19 @@
 import 'dart:async';
-import 'package:dio/dio.dart';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+
 import 'package:jni/jni.dart';
-import 'package:machine_inspection_camera/basecamera_bindings.dart';
-
-import 'package:machine_inspection_camera/preview.dart';
-
+import 'package:machine_inspection_camera/Previewplayer.dart';
 import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:machine_inspection_camera/sdkmedia_bindings.dart';
+
+import 'package:dio/dio.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 void main() {
-  // Ensure Flutter and native code are initialized
   WidgetsFlutterBinding.ensureInitialized();
-
   runApp(const MyApp());
 }
-
-const platform = MethodChannel('samples.flutter.dev/ble');
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -46,125 +41,82 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  List<String> _devices = [];
+  late IPreviewStatusListener listener;
 
-  String _bleStatus = 'Idle';
-  String _batteryLevel = 'Unknown';
+  bool isStreaming = false;
+
   String ssid = 'X4 1G3PYC.OSC';
   String password = '88888888';
 
   @override
-  initState() {
+  void initState() {
     super.initState();
-    initializeCam();
+
+    initializeCameraSdk();
   }
 
-  initializeCam() {
-    JObject activity = JObject.fromReference(Jni.getCachedApplicationContext());
+  @override
+  void dispose() {
+    isStreaming = false;
 
-    // Initialize the SDK
-    InstaCameraSDK.init(
-        // Initialize the SDK
-        activity);
-    InstaCameraManager.getInstance();
+    InstaCameraManager.getInstance().closePreviewStream();
+    super.dispose();
   }
 
-  Future<void> _startBleScan() async {
-    try {
-      await platform.invokeMethod('startBleScan');
-      setState(() {
-        _bleStatus = 'Scanning for devices...';
-      });
-      _getScannedDevices();
-    } on PlatformException catch (e) {
-      setState(() {
-        _bleStatus = "Failed to start scan: '${e.message}'.";
-      });
-    }
+  void initializeCameraSdk() {
+    final activity = JObject.fromReference(Jni.getCachedApplicationContext());
+
+    InstaCameraSDK.init(activity);
+    InstaMediaSDK.init(activity);
+    final capturePlayerView = InstaCapturePlayerView(activity);
+    listener = IPreviewStatusListener.implement(
+      $IPreviewStatusListener(
+        onOpening: () {
+          print("Preview is opening...");
+        },
+        onOpened: () {
+          print("Preview has started.");
+          final cameraManager = InstaCameraManager.getInstance();
+          cameraManager.setStreamEncode();
+
+          capturePlayerView.setPlayerViewListener(
+              PlayerViewListener.implement($PlayerViewListener(
+            onReleaseCameraPipeline: () {},
+            onFail: (i, string) {},
+            onLoadingStatusChanged: (z) {},
+            onLoadingFinish: () {
+              print("loading");
+              final pipeline = capturePlayerView.getPipeline();
+
+              cameraManager.setPipeline(pipeline);
+            },
+          )));
+
+          capturePlayerView.prepare(createParams());
+
+          capturePlayerView.play();
+        },
+        onIdle: () {
+          print("Preview is idle...");
+        },
+        onError: () {
+          print("An error occurred...");
+        },
+        onVideoData: (videoData) async {},
+        onGyroData: (gyroDataList) {
+          //   print("Gyro data received: $gyroDataList");
+        },
+        onExposureData: (exposureData) {
+          //  print("Exposure data received: $exposureData");
+        },
+      ),
+    );
   }
 
   final Dio _dio = Dio();
   connect() {
     InstaCameraManager.getInstance()
         .openCamera(InstaCameraManager.CONNECT_TYPE_WIFI);
-  }
-
-  getData() {
-    final manager = InstaCameraManager.getInstance();
-    final type = manager.getCameraConnectedType();
-    print('Camera Connected Type: $type');
-    return manager;
-  }
-
-  getPreviewTypes() {
-    List<PreviewStreamResolution> supportedList =
-        InstaCameraManager.getInstance().getSupportedPreviewStreamResolution(
-            InstaCameraManager.PREVIEW_TYPE_LIVE);
-    print('Preview Types: $supportedList');
-  }
-
-  Future<void> getCameraInfo() async {
-    // .startPreviewStream(
-
-    // );
-// InstaCameraManager.getInstance().startPreviewStream(resolution, 2);
-
-    const String baseUrl = 'http://192.168.42.1'; // Camera's IP address
-    const String endpoint = '/osc/info';
-
-    // Headers required for the request
-    final headers = {
-      'Content-Type': 'application/json;charset=utf-8',
-      'Accept': 'application/json',
-      'X-XSRF-Protected': '1',
-    };
-
-    // Initialize Dio with optional timeout settings
-    final Dio dio = Dio(
-      BaseOptions(
-          connectTimeout: Duration(seconds: 5), // 5 seconds
-          receiveTimeout: Duration(seconds: 5)),
-    );
-
-    try {
-      // Make the GET request
-      final response = await dio.get(
-        '$baseUrl$endpoint',
-        options: Options(headers: headers),
-      );
-
-      // Check for successful response
-      if (response.statusCode == 200) {
-        print('Camera Info: ${response.data}');
-      } else {
-        print(
-            'Failed to fetch camera info. Status Code: ${response.statusCode}');
-      }
-    } on DioError catch (e) {
-      // Handle errors
-      if (e.type == DioErrorType.connectionTimeout) {
-        print('Connection timeout. Unable to reach the camera.');
-      } else if (e.type == DioErrorType.receiveTimeout) {
-        print('Response timeout. Camera took too long to respond.');
-      } else if (e.response != null) {
-        print('Error: ${e.response?.data}');
-      } else {
-        print('Unknown error: ${e.message}');
-      }
-    }
-  }
-
-  Future<void> _stopBleScan() async {
-    try {
-      await platform.invokeMethod('stopBleScan');
-      setState(() {
-        _bleStatus = 'Scan stopped.';
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _bleStatus = "Failed to stop scan: '${e.message}'.";
-      });
-    }
   }
 
   void setCameraOptions() async {
@@ -228,104 +180,20 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<void> _connectToWiFi() async {
+  Future<void> connectToWiFi() async {
     try {
-      bool isConnected = await WiFiForIoTPlugin.connect(
+      final isConnected = await WiFiForIoTPlugin.connect(
         ssid,
         password: password,
-        security: NetworkSecurity
-            .WPA, // NetworkSecurity.NONE, NetworkSecurity.WEP, NetworkSecurity.WPA, NetworkSecurity.WPA2
-
+        security: NetworkSecurity.WPA,
         joinOnce: false,
-        // withInternet:
-        //     false, // Set to true if you expect internet access through this Wi-Fi
       );
 
-      if (isConnected) {
-        print("Successfully connected to Wi-Fi: $ssid");
-      } else {
-        print("Failed to connect to Wi-Fi: $ssid");
-      }
+      print(isConnected
+          ? "Successfully connected to Wi-Fi: $ssid"
+          : "Failed to connect to Wi-Fi: $ssid");
     } catch (e) {
       print("Exception occurred while connecting to Wi-Fi: '${e.toString()}'.");
-    }
-    // bool isConnected = await WiFiConnector.connectToWiFi(ssid, password);
-
-    // if (isConnected) {
-    //   print("Successfully connected to Wi-Fi: $ssid");
-    // } else {
-    //   print("Failed to connect to Wi-Fi: $ssid");
-    // }
-  }
-
-  Future<void> _connectByWiFi() async {
-    try {
-      final result = await platform.invokeMethod('connectByWiFi');
-      print(result); // "Connected via Wi-Fi"
-    } on PlatformException catch (e) {
-      print("Failed to connect by Wi-Fi: '${e.message}'.");
-    }
-  }
-
-  Future<void> _startPreview() async {
-    try {
-      final result = await platform.invokeMethod('startPreview');
-      print(result); // "Preview started"
-    } on PlatformException catch (e) {
-      print("Failed to start preview: '${e.message}'.");
-    }
-  }
-
-  Future<void> _getScannedDevices() async {
-    try {
-      final List<dynamic> devices =
-          await platform.invokeMethod('getScannedDevices');
-      setState(() {
-        _devices = devices.cast<String>();
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _bleStatus = "Failed to get devices: '${e.message}'.";
-      });
-    }
-  }
-
-  Future<void> _connectToDevice(String deviceId) async {
-    try {
-      await platform.invokeMethod('connectBle', {'deviceId': deviceId});
-      setState(() {
-        _bleStatus = 'Connecting to $deviceId...';
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _bleStatus = "Failed to connect: '${e.message}'.";
-      });
-    }
-  }
-
-  Future<void> _disconnectDevice() async {
-    try {
-      await platform.invokeMethod('disconnectBle');
-      setState(() {
-        _bleStatus = 'Device disconnected.';
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _bleStatus = "Failed to disconnect: '${e.message}'.";
-      });
-    }
-  }
-
-  Future<void> _getBatteryLevel() async {
-    try {
-      final int result = await platform.invokeMethod('getBatteryLevel');
-      setState(() {
-        _batteryLevel = 'Battery Level: $result%';
-      });
-    } on PlatformException catch (e) {
-      setState(() {
-        _batteryLevel = "Failed to get battery level: '${e.message}'.";
-      });
     }
   }
 
@@ -336,127 +204,81 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: Center(
+      body: SingleChildScrollView(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            // ElevatedButton(
-            //   onPressed: _startBleScan,
-            //   child: const Text('Start BLE Scan'),
-            // ),
-            // ElevatedButton(
-            //   onPressed: _stopBleScan,
-            //   child: const Text('Stop BLE Scan'),
-            // ),
-
+            // Wi-Fi connection button
             ElevatedButton(
-              onPressed: _getBatteryLevel,
-              child: const Text('Get Battery Level'),
-            ),
-            Text(_batteryLevel),
-            ElevatedButton(
-              onPressed: _connectToWiFi,
+              onPressed: () => connectToWiFi(),
               child: const Text('Connect via Wi-Fi'),
             ),
-            ElevatedButton(
-              onPressed: _startPreview,
-              child: const Text('Start Preview'),
-            ),
-            ElevatedButton(
-              onPressed: getCameraInfo,
-              child: const Text('Get Camera info'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                await Permission.location.request();
-              },
-              child: const Text('Request Location Permission'),
-            ),
+            // Start preview button
+
+            // SDK connect button
             ElevatedButton(
               onPressed: () async {
                 connect();
               },
               child: const Text('SDK Connect'),
             ),
+            // Test Wi-Fi details
             ElevatedButton(
               onPressed: () async {
-                //    WiFiForIoTPlugin.showWritePermissionSettings(true);
-                // WiFiForIoTPlugin.isConnected().then((value) {
-                //   print('Connected to Wi-Fi: $value');
-                // });
-
                 WiFiForIoTPlugin.getSSID().then((value) {
                   print('SSID: $value');
                 });
-
-                WiFiForIoTPlugin.forceWifiUsage(true).then(
-                  (value) {
-                    print('Force Wi-Fi usage: $value');
-                  },
-                );
-
+                WiFiForIoTPlugin.forceWifiUsage(true).then((value) {
+                  print('Force Wi-Fi usage: $value');
+                });
                 WiFiForIoTPlugin.getIP().then((value) {
                   print('IP: $value');
                 });
               },
-              child: const Text('test'),
+              child: const Text('Test Wi-Fi Info'),
             ),
-
+            // Take a photo button
             ElevatedButton(
               onPressed: setCameraOptions,
-              child: const Text('take photo'),
+              child: const Text('Take Photo'),
             ),
-            ElevatedButton(
-              onPressed: getData,
-              child: const Text('Check Camera'),
+            // PlatformView for InstaCapturePlayerView
+            const SizedBox(
+              height: 400,
+              child: PreviewPlayer(),
             ),
+            // Start recording button
             ElevatedButton(
-              onPressed: getPreviewTypes,
-              child: const Text('get preview types'),
+              onPressed: () {
+                InstaCameraManager.getInstance()
+                    .setPreviewStatusChangedListener(listener);
+                InstaCameraManager.getInstance().startPreviewStream$2(
+                    PreviewStreamResolution.STREAM_1440_720_30FPS,
+                    InstaCameraManager.PREVIEW_TYPE_NORMAL);
+              },
+              child: const Text('Start Preview'),
             ),
-
+            // Stop recording button
             ElevatedButton(
-                onPressed: () {
-                  // Set the listener for preview status changes
-
-                  // Start the preview stream
-
-                  // @override
-                  // void onVideoData(VideoData videoData) {
-                  //   // Handle video data
-                  //   print(videoData);
-                  // }
-                  InstaCameraManager.getInstance().startNormalCapture(1);
-                },
-                child: Text('Start Preview Stream')),
-            if (_devices.isNotEmpty)
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _devices.length,
-                  itemBuilder: (context, index) {
-                    final device = _devices[index];
-                    return ListTile(
-                      title: Text(device),
-                      onTap: () {
-                        final parts = device.split(' ');
-                        final deviceId =
-                            parts.last.replaceAll('(', '').replaceAll(')', '');
-                        _connectToDevice(deviceId);
-                      },
-                    );
-                  },
-                ),
-              ),
-            if (_devices.isEmpty) const Text('No devices found.'),
-            Text(_bleStatus),
+              onPressed: () {
+                InstaCameraManager.getInstance().closePreviewStream();
+              },
+              child: const Text('Stop Preview'),
+            ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _disconnectDevice,
-        tooltip: 'Disconnect',
-        child: const Icon(Icons.bluetooth_disabled),
-      ),
     );
   }
+}
+
+CaptureParamsBuilder createParams() {
+  CaptureParamsBuilder builder = new CaptureParamsBuilder()
+      .setCameraType(InstaCameraManager.getInstance().getCameraType())
+      .setMediaOffset(InstaCameraManager.getInstance().getMediaOffset())
+      .setMediaOffsetV2(InstaCameraManager.getInstance().getMediaOffsetV2())
+      .setMediaOffsetV3(InstaCameraManager.getInstance().getMediaOffsetV3());
+  // .setCameraSelfie(InstaCameraManager.getInstance().isCameraSelfie())
+  // .setGyroTimeStamp(InstaCameraManager.getInstance().getGyroTimeStamp())
+  // .setBatteryType(InstaCameraManager.getInstance().getBatteryType());
+  return builder;
 }
