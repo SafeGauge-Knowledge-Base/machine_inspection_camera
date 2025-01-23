@@ -12,20 +12,24 @@ class PreviewPlayer extends StatefulWidget {
 }
 
 class _PreviewPlayerState extends State<PreviewPlayer> {
-  late final AndroidViewController _controller;
+  late AndroidViewController _controller;
 
   @override
   void initState() {
     super.initState();
-    // Initialize the controller
+
+    // Initialize the controller with a unique ID
     _controller = PlatformViewsService.initSurfaceAndroidView(
-      id: 0,
+      id: 0, // Use a unique ID if you have multiple views
       viewType:
           'com.arashivision.sdkmedia.player.capture.InstaCapturePlayerView',
       layoutDirection: TextDirection.ltr,
       creationParams: null,
       creationParamsCodec: const StandardMessageCodec(),
-    )..create();
+    );
+
+    // Create the platform view
+    _controller.create();
   }
 
   @override
@@ -35,10 +39,14 @@ class _PreviewPlayerState extends State<PreviewPlayer> {
         title: const Text('Preview Player'),
       ),
       body: Center(
-        child: AndroidViewSurface(
-          controller: _controller,
-          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
-          hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width,
+          height: MediaQuery.of(context).size.height,
+          child: AndroidViewSurface(
+            controller: _controller,
+            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+            hitTestBehavior: PlatformViewHitTestBehavior.translucent,
+          ),
         ),
       ),
     );
@@ -46,7 +54,7 @@ class _PreviewPlayerState extends State<PreviewPlayer> {
 
   @override
   void dispose() {
-    // Dispose the controller when the widget is removed from the widget tree
+    // Dispose of the controller to release resources
     _controller.dispose();
     super.dispose();
   }

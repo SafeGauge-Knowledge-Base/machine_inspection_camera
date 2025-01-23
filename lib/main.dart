@@ -65,49 +65,49 @@ class _MyHomePageState extends State<MyHomePage> {
 
     InstaCameraSDK.init(activity);
     InstaMediaSDK.init(activity);
-    final capturePlayerView = InstaCapturePlayerView(activity);
+    // final capturePlayerView = InstaCapturePlayerView(activity);
 
-    listener = IPreviewStatusListener.implement(
-      $IPreviewStatusListener(
-        onOpening: () {
-          print("Preview is opening...");
-        },
-        onOpened: () {
-          print("Preview has started.");
-          final cameraManager = InstaCameraManager.getInstance();
-          cameraManager.setStreamEncode();
+    // listener = IPreviewStatusListener.implement(
+    //   $IPreviewStatusListener(
+    //     onOpening: () {
+    //       print("Preview is opening...");
+    //     },
+    //     onOpened: () {
+    //       print("Preview has started.");
+    //       final cameraManager = InstaCameraManager.getInstance();
+    //       cameraManager.setStreamEncode();
 
-          capturePlayerView.setPlayerViewListener(
-              PlayerViewListener.implement($PlayerViewListener(
-            onReleaseCameraPipeline: () {},
-            onFail: (i, string) {},
-            onLoadingStatusChanged: (z) {},
-            onLoadingFinish: () {
-              print("loading");
-              final pipeline = capturePlayerView.getPipeline();
+    //       capturePlayerView.setPlayerViewListener(
+    //           PlayerViewListener.implement($PlayerViewListener(
+    //         onReleaseCameraPipeline: () {},
+    //         onFail: (i, string) {},
+    //         onLoadingStatusChanged: (z) {},
+    //         onLoadingFinish: () {
+    //           print("loading");
+    //           final pipeline = capturePlayerView.getPipeline();
 
-              cameraManager.setPipeline(pipeline);
-            },
-          )));
+    //           cameraManager.setPipeline(pipeline);
+    //         },
+    //       )));
 
-          // capturePlayerView.prepare(createParams());
-          // capturePlayerView.play();
-        },
-        onIdle: () {
-          print("Preview is idle...");
-        },
-        onError: () {
-          print("An error occurred...");
-        },
-        onVideoData: (videoData) async {},
-        onGyroData: (gyroDataList) {
-          //   print("Gyro data received: $gyroDataList");
-        },
-        onExposureData: (exposureData) {
-          //  print("Exposure data received: $exposureData");
-        },
-      ),
-    );
+    //       // capturePlayerView.prepare(createParams());
+    //       // capturePlayerView.play();
+    //     },
+    //     onIdle: () {
+    //       print("Preview is idle...");
+    //     },
+    //     onError: () {
+    //       print("An error occurred...");
+    //     },
+    //     onVideoData: (videoData) async {},
+    //     onGyroData: (gyroDataList) {
+    //       //   print("Gyro data received: $gyroDataList");
+    //     },
+    //     onExposureData: (exposureData) {
+    //       //  print("Exposure data received: $exposureData");
+    //     },
+    //   ),
+    // );
   }
 
   final Dio _dio = Dio();
@@ -239,41 +239,62 @@ class _MyHomePageState extends State<MyHomePage> {
               child: const Text('Take Photo'),
             ),
             // PlatformView for InstaCapturePlayerView
-            const SizedBox(
-              height: 400,
-              child: PreviewPlayer(),
-            ),
+
+            isStreaming
+                ? const SizedBox(
+                    height: 400,
+                    child: PreviewPlayer(),
+                  )
+                : const SizedBox(),
+
             // Start recording button
             ElevatedButton(
               onPressed: () {
-                InstaCameraManager.getInstance()
-                    .setPreviewStatusChangedListener(listener);
-                InstaCameraManager.getInstance().startPreviewStream();
+                // InstaCameraManager.getInstance()
+                //     .setPreviewStatusChangedListener(listener);
+                // InstaCameraManager.getInstance().startPreviewStream();
+
+                setState(() {
+                  isStreaming = true;
+                });
               },
               child: const Text('Start Preview'),
             ),
             // Stop recording button
             ElevatedButton(
               onPressed: () {
+                setState(() {
+                  isStreaming = false;
+                });
                 InstaCameraManager.getInstance().closePreviewStream();
               },
               child: const Text('Stop Preview'),
+            ),
+
+            ElevatedButton(
+              onPressed: () {
+                // List<PreviewStreamResolution> supportedList =
+                //     InstaCameraManager.getInstance()
+                //         .getSupportedPreviewStreamResolution(0);
+                // print(supportedList);
+
+                //  PreviewStreamResolution.STREAM_1440_720_30FPS
+
+                // List<PreviewStreamResolution> supportedList2 =
+                //     InstaCameraManager.getInstance()
+                //         .getSupportedPreviewStreamResolution(
+                //             InstaCameraManager.PREVIEW_TYPE_NORMAL);
+
+             //   print(supportedList2);
+
+
+
+              },
+              child: const Text('get'),
             ),
           ],
         ),
       ),
     );
   }
-}
-
-CaptureParamsBuilder createParams() {
-  CaptureParamsBuilder builder = new CaptureParamsBuilder()
-      .setCameraType(InstaCameraManager.getInstance().getCameraType())
-      .setMediaOffset(InstaCameraManager.getInstance().getMediaOffset())
-      .setMediaOffsetV2(InstaCameraManager.getInstance().getMediaOffsetV2())
-      .setMediaOffsetV3(InstaCameraManager.getInstance().getMediaOffsetV3())
-      .setCameraSelfie(InstaCameraManager.getInstance().isCameraSelfie())
-      .setGyroTimeStamp(InstaCameraManager.getInstance().getGyroTimeStamp())
-      .setBatteryType(InstaCameraManager.getInstance().getBatteryType());
-  return builder;
 }
