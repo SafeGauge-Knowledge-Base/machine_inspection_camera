@@ -1,7 +1,5 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-
 import 'package:jni/jni.dart';
 import 'package:machine_inspection_camera/Previewplayer.dart';
 import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
@@ -11,7 +9,6 @@ import 'package:dio/dio.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -69,6 +66,7 @@ class _MyHomePageState extends State<MyHomePage> {
     InstaCameraSDK.init(activity);
     InstaMediaSDK.init(activity);
     final capturePlayerView = InstaCapturePlayerView(activity);
+
     listener = IPreviewStatusListener.implement(
       $IPreviewStatusListener(
         onOpening: () {
@@ -92,9 +90,8 @@ class _MyHomePageState extends State<MyHomePage> {
             },
           )));
 
-          capturePlayerView.prepare(createParams());
-
-          capturePlayerView.play();
+          // capturePlayerView.prepare(createParams());
+          // capturePlayerView.play();
         },
         onIdle: () {
           print("Preview is idle...");
@@ -251,9 +248,7 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: () {
                 InstaCameraManager.getInstance()
                     .setPreviewStatusChangedListener(listener);
-                InstaCameraManager.getInstance().startPreviewStream$2(
-                    PreviewStreamResolution.STREAM_1440_720_30FPS,
-                    InstaCameraManager.PREVIEW_TYPE_NORMAL);
+                InstaCameraManager.getInstance().startPreviewStream();
               },
               child: const Text('Start Preview'),
             ),
@@ -276,9 +271,9 @@ CaptureParamsBuilder createParams() {
       .setCameraType(InstaCameraManager.getInstance().getCameraType())
       .setMediaOffset(InstaCameraManager.getInstance().getMediaOffset())
       .setMediaOffsetV2(InstaCameraManager.getInstance().getMediaOffsetV2())
-      .setMediaOffsetV3(InstaCameraManager.getInstance().getMediaOffsetV3());
-  // .setCameraSelfie(InstaCameraManager.getInstance().isCameraSelfie())
-  // .setGyroTimeStamp(InstaCameraManager.getInstance().getGyroTimeStamp())
-  // .setBatteryType(InstaCameraManager.getInstance().getBatteryType());
+      .setMediaOffsetV3(InstaCameraManager.getInstance().getMediaOffsetV3())
+      .setCameraSelfie(InstaCameraManager.getInstance().isCameraSelfie())
+      .setGyroTimeStamp(InstaCameraManager.getInstance().getGyroTimeStamp())
+      .setBatteryType(InstaCameraManager.getInstance().getBatteryType());
   return builder;
 }

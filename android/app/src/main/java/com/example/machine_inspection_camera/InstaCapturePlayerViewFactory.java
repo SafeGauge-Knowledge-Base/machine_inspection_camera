@@ -1,10 +1,6 @@
 package com.example.machine_inspection_camera;
 
 import android.content.Context;
-import android.view.LayoutInflater;
-import android.view.View;
-
-import androidx.annotation.NonNull;
 
 import io.flutter.plugin.common.StandardMessageCodec;
 import io.flutter.plugin.platform.PlatformView;

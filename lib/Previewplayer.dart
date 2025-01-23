@@ -12,6 +12,22 @@ class PreviewPlayer extends StatefulWidget {
 }
 
 class _PreviewPlayerState extends State<PreviewPlayer> {
+  late final AndroidViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the controller
+    _controller = PlatformViewsService.initSurfaceAndroidView(
+      id: 0,
+      viewType:
+          'com.arashivision.sdkmedia.player.capture.InstaCapturePlayerView',
+      layoutDirection: TextDirection.ltr,
+      creationParams: null,
+      creationParamsCodec: const StandardMessageCodec(),
+    )..create();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -19,30 +35,19 @@ class _PreviewPlayerState extends State<PreviewPlayer> {
         title: const Text('Preview Player'),
       ),
       body: Center(
-        child: PlatformViewLink(
-          viewType:
-              'com.arashivision.sdkmedia.player.capture.InstaCapturePlayerView',
-          surfaceFactory: (context, controller) {
-            return AndroidViewSurface(
-              controller: controller as AndroidViewController,
-              gestureRecognizers: const {},
-              hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-            );
-          },
-          onCreatePlatformView: (params) {
-            return PlatformViewsService.initSurfaceAndroidView(
-              id: params.id,
-              viewType:
-                  'com.arashivision.sdkmedia.player.capture.InstaCapturePlayerView',
-              layoutDirection: TextDirection.ltr,
-              creationParams: null,
-              creationParamsCodec: const StandardMessageCodec(),
-            )
-              ..addOnPlatformViewCreatedListener(params.onPlatformViewCreated)
-              ..create();
-          },
+        child: AndroidViewSurface(
+          controller: _controller,
+          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+          hitTestBehavior: PlatformViewHitTestBehavior.opaque,
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    // Dispose the controller when the widget is removed from the widget tree
+    _controller.dispose();
+    super.dispose();
   }
 }
