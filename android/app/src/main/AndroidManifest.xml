@@ -37,6 +37,8 @@
         android:usesCleartextTraffic="true"
         tools:replace="android:label"> <!-- Allows overriding the app label -->
 <activity
+    android:usesCleartextTraffic="true"
+    android:enableOnBackInvokedCallback="true"
     android:name=".MainActivity"
     android:exported="true"
     android:launchMode="singleTop"

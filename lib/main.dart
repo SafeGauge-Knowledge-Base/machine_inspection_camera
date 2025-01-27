@@ -1,14 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:jni/jni.dart';
-import 'package:machine_inspection_camera/Previewplayer.dart';
-import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
-import 'package:machine_inspection_camera/sdkmedia_bindings.dart';
 
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:machine_inspection_camera/live.dart';
+import 'package:machine_inspection_camera/stream.dart';
+import 'package:udp/udp.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
   runApp(const MyApp());
 }
 
@@ -38,33 +42,26 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late IPreviewStatusListener listener;
-
   bool isStreaming = false;
 
-  String ssid = 'X4 1G3PYC.OSC';
-  String password = '88888888';
+  String ssid = 'GP24551423';
+  String password = 'MXH-C#X-5v4';
 
   @override
   void initState() {
     super.initState();
 
-    initializeCameraSdk();
+    // initializeCameraSdk();
   }
 
   @override
   void dispose() {
     isStreaming = false;
 
-    InstaCameraManager.getInstance().closePreviewStream();
     super.dispose();
   }
 
   void initializeCameraSdk() {
-    final activity = JObject.fromReference(Jni.getCachedApplicationContext());
-
-    InstaCameraSDK.init(activity);
-    InstaMediaSDK.init(activity);
     // final capturePlayerView = InstaCapturePlayerView(activity);
 
     // listener = IPreviewStatusListener.implement(
@@ -111,10 +108,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   final Dio _dio = Dio();
-  connect() {
-    InstaCameraManager.getInstance()
-        .openCamera(InstaCameraManager.CONNECT_TYPE_WIFI);
-  }
+  connect() {}
 
   void setCameraOptions() async {
     const String baseUrl = 'http://192.168.42.1'; // Camera's IP address
@@ -183,7 +177,6 @@ class _MyHomePageState extends State<MyHomePage> {
         ssid,
         password: password,
         security: NetworkSecurity.WPA,
-        joinOnce: false,
       );
 
       print(isConnected
@@ -240,13 +233,6 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             // PlatformView for InstaCapturePlayerView
 
-            isStreaming
-                ? const SizedBox(
-                    height: 400,
-                    child: PreviewPlayer(),
-                  )
-                : const SizedBox(),
-
             // Start recording button
             ElevatedButton(
               onPressed: () {
@@ -266,13 +252,12 @@ class _MyHomePageState extends State<MyHomePage> {
                 setState(() {
                   isStreaming = false;
                 });
-                InstaCameraManager.getInstance().closePreviewStream();
               },
               child: const Text('Stop Preview'),
             ),
 
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 // List<PreviewStreamResolution> supportedList =
                 //     InstaCameraManager.getInstance()
                 //         .getSupportedPreviewStreamResolution(0);
@@ -285,16 +270,141 @@ class _MyHomePageState extends State<MyHomePage> {
                 //         .getSupportedPreviewStreamResolution(
                 //             InstaCameraManager.PREVIEW_TYPE_NORMAL);
 
-             //   print(supportedList2);
-
-
-
+                //   print(supportedList2);
+                // startGoProStream();
+                startStreamAndListen();
               },
-              child: const Text('get'),
+              child: const Text('start stream'),
             ),
+
+            ElevatedButton(
+              onPressed: () async {
+                stopGoProStream();
+              },
+              child: const Text('stop stream'),
+            ),
+
+            ElevatedButton(
+              onPressed: () async {
+                sendKeepAliveRequest();
+              },
+              child: const Text('keep alive'),
+            ),
+
+            ElevatedButton(
+                onPressed: () async {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LiveStreamPage(),
+                    ),
+                  );
+                },
+                child: Text('Live Stream Page'))
           ],
         ),
       ),
     );
+  }
+}
+
+Future<void> sendKeepAliveRequest() async {
+  try {
+    // Initialize Dio
+    final Dio dio = Dio();
+
+    // Define the URL
+    const String url = 'http://10.5.5.9:8080/gopro/camera/keep_alive';
+
+    // Perform the GET request
+    final response = await dio.get(url);
+
+    // Handle the response
+    print('Keep-Alive Response: ${response.data}');
+  } catch (e) {
+    // Handle errors
+    print('Error while sending keep-alive request: $e');
+
+    if (e is DioError) {
+      print('DioError Type: ${e.type}');
+      print('DioError Message: ${e.message}');
+      if (e.response != null) {
+        print('DioError Response Data: ${e.response?.data}');
+      }
+    }
+  }
+}
+
+Future<void> startGoProStream() async {
+  try {
+    final Dio dio = Dio();
+
+    // Define the URL and query parameters
+    const String url = 'http://10.5.5.9:8080/gopro/camera/stream/start';
+    final Map<String, String> queryParameters = {'port': '8556'};
+
+    // Send the GET request
+    final response = await dio.get(url, queryParameters: queryParameters);
+
+    if (response.statusCode == 200) {
+      print('Stream started successfully: ${response.data}');
+    } else {
+      print('Failed to start stream: ${response.statusCode}');
+    }
+  } catch (e) {
+    print('Error while starting GoPro stream: $e');
+  }
+}
+
+void startListeningToUDP() async {
+  try {
+    // Bind the UDP listener to port 8554
+    final udpReceiver = await UDP.bind(
+        Endpoint.unicast(InternetAddress.anyIPv4, port: const Port(8556)));
+    print('Listening for UDP packets on port 8554...');
+
+    // Listen for incoming datagrams
+    udpReceiver.asStream().listen((datagram) {
+      print('Received UDP packet from: ${datagram}');
+      if (datagram != null) {
+        // Access the incoming data
+        Uint8List data = datagram.data;
+        print('Received UDP packet of size: ${data.length}');
+        print(
+            'Data (Hex): ${data.map((byte) => byte.toRadixString(16).padLeft(2, '0')).join(' ')}');
+
+        // TODO: Pass the data to an MPEG TS decoder
+      }
+    });
+  } catch (e) {
+    print('Error listening to UDP packets: $e');
+  }
+}
+
+void startStreamAndListen() async {
+  // Start the stream
+  await startGoProStream();
+
+  // Start listening to the UDP stream
+  //startListeningToUDP();
+}
+
+Future<void> stopGoProStream() async {
+  try {
+    final Dio dio = Dio();
+
+    // Define the URL and query parameters
+    const String url = 'http://10.5.5.9:8080/gopro/camera/stream/stop';
+
+    // Send the GET request
+    final response = await dio.get(url);
+
+    if (response.statusCode == 200) {
+      print('Stream stopped successfully: ${response.data}');
+    } else {
+      print('Failed to stop stream: ${response.statusCode}');
+    }
+  } catch (e) {
+    print('Error while stopping GoPro stream: $e');
   }
 }
