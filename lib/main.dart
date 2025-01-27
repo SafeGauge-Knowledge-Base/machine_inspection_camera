@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:jni/jni.dart';
 import 'package:machine_inspection_camera/Previewplayer.dart';
+import 'package:machine_inspection_camera/live.dart';
 import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
 import 'package:machine_inspection_camera/sdkmedia_bindings.dart';
 
@@ -65,49 +68,117 @@ class _MyHomePageState extends State<MyHomePage> {
 
     InstaCameraSDK.init(activity);
     InstaMediaSDK.init(activity);
-    // final capturePlayerView = InstaCapturePlayerView(activity);
+    final capturePlayerView = InstaCapturePlayerView(activity);
 
-    // listener = IPreviewStatusListener.implement(
-    //   $IPreviewStatusListener(
-    //     onOpening: () {
-    //       print("Preview is opening...");
-    //     },
-    //     onOpened: () {
-    //       print("Preview has started.");
-    //       final cameraManager = InstaCameraManager.getInstance();
-    //       cameraManager.setStreamEncode();
+    listener = IPreviewStatusListener.implement(
+      $IPreviewStatusListener(
+        onOpening: () {
+          print("Preview is opening...");
+        },
+        onOpened: () {
+          print("Preview has started.");
+          final cameraManager = InstaCameraManager.getInstance();
+          cameraManager.setStreamEncode();
+          final pipeline = capturePlayerView.getPipeline();
 
-    //       capturePlayerView.setPlayerViewListener(
-    //           PlayerViewListener.implement($PlayerViewListener(
-    //         onReleaseCameraPipeline: () {},
-    //         onFail: (i, string) {},
-    //         onLoadingStatusChanged: (z) {},
-    //         onLoadingFinish: () {
-    //           print("loading");
-    //           final pipeline = capturePlayerView.getPipeline();
+          cameraManager.setPipeline(pipeline);
+          // capturePlayerView.setPlayerViewListener(
+          //     PlayerViewListener.implement($PlayerViewListener(
+          //   onReleaseCameraPipeline: () {},
+          //   onFail: (i, string) {},
+          //   onLoadingStatusChanged: (z) {},
+          //   onLoadingFinish: () {
+          //     print("loading");
+          //     final pipeline = capturePlayerView.getPipeline();
 
-    //           cameraManager.setPipeline(pipeline);
-    //         },
-    //       )));
+          //     cameraManager.setPipeline(pipeline);
+          //   },
+          // )));
 
-    //       // capturePlayerView.prepare(createParams());
-    //       // capturePlayerView.play();
-    //     },
-    //     onIdle: () {
-    //       print("Preview is idle...");
-    //     },
-    //     onError: () {
-    //       print("An error occurred...");
-    //     },
-    //     onVideoData: (videoData) async {},
-    //     onGyroData: (gyroDataList) {
-    //       //   print("Gyro data received: $gyroDataList");
-    //     },
-    //     onExposureData: (exposureData) {
-    //       //  print("Exposure data received: $exposureData");
-    //     },
-    //   ),
-    // );
+          // capturePlayerView.prepare(createParams());
+          // capturePlayerView.play();
+        },
+        onIdle: () {
+          print("Preview is idle...");
+        },
+        onError: () {
+          print("An error occurred...");
+        },
+        onVideoData: (videoData) async {
+          // Forward UDP packets to all HTTP clients
+
+          if (videoData.data != null) {
+            // Convert JArray<jbyte> to Uint8List
+            Uint8List data = convertJArrayToUint8List(videoData.data);
+      //      print(data);
+            // Broadcast the data
+            _broadcastToClients(data);
+          }
+        },
+        onGyroData: (gyroDataList) {
+          //   print("Gyro data received: $gyroDataList");
+        },
+        onExposureData: (exposureData) {
+          //  print("Exposure data received: $exposureData");
+        },
+      ),
+    );
+  }
+
+  final int httpPort = 8081; // HTTP port for VLC
+
+  List<HttpResponse> _clients = []; // HTTP clients connected to the server
+
+  Future<void> starthttp() async {
+    // Start the HTTP server
+    final httpServer =
+        await HttpServer.bind(InternetAddress.anyIPv4, httpPort, shared: true);
+
+    // Handle HTTP connections
+    httpServer.listen((HttpRequest request) {
+      if (request.uri.path == '/stream') {
+        print('New VLC client connected');
+        _handleHttpConnection(request);
+      } else {
+        request.response
+          ..statusCode = HttpStatus.notFound
+          ..write('Not Found')
+          ..close();
+      }
+    });
+  }
+
+  void _handleHttpConnection(HttpRequest request) {
+    final response = request.response;
+    response.bufferOutput = false;
+
+    response.headers.contentType = ContentType('video', 'mp2t');
+
+    response.headers.set('Keep-Alive', 'timeout=5, max=1000');
+    response.headers.set('Cache-Control', 'no-cache');
+    response.headers.set('Connection', 'keep-alive');
+    _clients.add(response);
+
+    // Remove the client when the connection is closed
+    response.done.whenComplete(() {
+      print('VLC client disconnected');
+      _clients.remove(response);
+    });
+  }
+
+  void _broadcastToClients(Uint8List data) {
+    // Send the UDP data to all connected HTTP clients
+    for (final client in _clients) {
+      client.add(data);
+    }
+  }
+
+  Future<void> stop() async {
+    for (final client in _clients) {
+      await client.close();
+    }
+    _clients.clear();
+    print('Streamer stopped');
   }
 
   final Dio _dio = Dio();
@@ -240,19 +311,19 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             // PlatformView for InstaCapturePlayerView
 
-            isStreaming
-                ? const SizedBox(
-                    height: 400,
-                    child: PreviewPlayer(),
-                  )
-                : const SizedBox(),
+            // isStreaming
+            //     ? const SizedBox(
+            //         height: 400,
+            //         child: PreviewPlayer(),
+            //       )
+            //     : const SizedBox(),
 
             // Start recording button
             ElevatedButton(
               onPressed: () {
-                // InstaCameraManager.getInstance()
-                //     .setPreviewStatusChangedListener(listener);
-                // InstaCameraManager.getInstance().startPreviewStream();
+                InstaCameraManager.getInstance()
+                    .setPreviewStatusChangedListener(listener);
+                InstaCameraManager.getInstance().startPreviewStream();
 
                 setState(() {
                   isStreaming = true;
@@ -263,14 +334,21 @@ class _MyHomePageState extends State<MyHomePage> {
             // Stop recording button
             ElevatedButton(
               onPressed: () {
-                setState(() {
-                  isStreaming = false;
-                });
                 InstaCameraManager.getInstance().closePreviewStream();
               },
               child: const Text('Stop Preview'),
             ),
-
+            ElevatedButton(
+                onPressed: () async {
+                  await starthttp();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => LiveStreamPage(),
+                    ),
+                  );
+                },
+                child: Text('Live Stream Page')),
             ElevatedButton(
               onPressed: () {
                 // List<PreviewStreamResolution> supportedList =
@@ -285,10 +363,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 //         .getSupportedPreviewStreamResolution(
                 //             InstaCameraManager.PREVIEW_TYPE_NORMAL);
 
-             //   print(supportedList2);
-
-
-
+                //   print(supportedList2);
               },
               child: const Text('get'),
             ),
@@ -297,4 +372,17 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
+}
+
+Uint8List convertJArrayToUint8List(JArray<jbyte> javaArray) {
+  // Create a Uint8List from the length of the Java byte array
+  final int length = javaArray.length;
+  final Uint8List result = Uint8List(length);
+
+  // Copy each byte from the Java array into the Dart Uint8List
+  for (int i = 0; i < length; i++) {
+    result[i] = javaArray[i];
+  }
+
+  return result;
 }
