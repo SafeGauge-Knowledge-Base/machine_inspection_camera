@@ -36,9 +36,9 @@ class _LiveStreamPageState extends State<LiveStreamPage> {
             VlcHttpOptions.httpContinuous(true),
           ]),
           advanced: VlcAdvancedOptions([
-            VlcAdvancedOptions.networkCaching(200),
-            VlcAdvancedOptions.liveCaching(200),
-            VlcAdvancedOptions.fileCaching(200),
+            VlcAdvancedOptions.networkCaching(0),
+            VlcAdvancedOptions.liveCaching(0),
+            VlcAdvancedOptions.fileCaching(0),
             VlcAdvancedOptions.clockJitter(0),
             VlcAdvancedOptions.clockSynchronization(1)
           ]),
