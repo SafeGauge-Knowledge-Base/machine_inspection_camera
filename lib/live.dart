@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 
 class LiveStreamPage extends StatefulWidget {
+  const LiveStreamPage({super.key});
+
   @override
-  _LiveStreamPageState createState() => _LiveStreamPageState();
+  State<LiveStreamPage> createState() => _LiveStreamPageState();
 }
 
 class _LiveStreamPageState extends State<LiveStreamPage> {
@@ -19,7 +21,7 @@ class _LiveStreamPageState extends State<LiveStreamPage> {
   }
 
   Future<void> startstream() async {
-    const streamUrl = 'http://127.0.0.1:8081/stream';
+    const streamUrl = 'http://127.0.0.1:8082/stream';
     final isStreamAvailable = await checkStreamAvailable(streamUrl);
 
     if (isStreamAvailable) {
@@ -32,17 +34,22 @@ class _LiveStreamPageState extends State<LiveStreamPage> {
             VlcHttpOptions.httpContinuous(true),
           ]),
           advanced: VlcAdvancedOptions([
-            VlcAdvancedOptions.networkCaching(200),
-            VlcAdvancedOptions.liveCaching(200),
-            VlcAdvancedOptions.fileCaching(200),
-            VlcAdvancedOptions.clockJitter(0),
-            VlcAdvancedOptions.clockSynchronization(1)
+            VlcAdvancedOptions.networkCaching(
+                3000), // Increase caching if needed
+            VlcAdvancedOptions.liveCaching(3000),
+
+            VlcAdvancedOptions.fileCaching(3000),
           ]),
         ),
       );
 
       setState(() {
         isListening = true;
+      });
+      _videoPlayerController.addListener(() {
+        if (_videoPlayerController.value.hasError) {
+          print('Error: ${_videoPlayerController.value.errorDescription}');
+        }
       });
     } else {
       print('Stream is not available at $streamUrl');
