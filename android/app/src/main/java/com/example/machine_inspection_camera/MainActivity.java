@@ -11,13 +11,6 @@ public class MainActivity extends FlutterFragmentActivity {
     public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
         super.configureFlutterEngine(flutterEngine);
 
-        // Register the custom platform view factory
-        flutterEngine
-            .getPlatformViewsController()
-            .getRegistry()
-            .registerViewFactory(
-                "com.arashivision.sdkmedia.player.capture.InstaCapturePlayerView",
-                new InstaCapturePlayerViewFactory()
-            );
+      
     }
 }

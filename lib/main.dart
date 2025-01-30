@@ -1,19 +1,16 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:android_path_provider/android_path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:jni/jni.dart';
-import 'package:machine_inspection_camera/Previewplayer.dart';
 import 'package:machine_inspection_camera/live.dart';
 import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
-import 'package:machine_inspection_camera/sdkmedia_bindings.dart';
-
 import 'package:dio/dio.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -43,10 +40,6 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  late IPreviewStatusListener listener;
-  final int httpPort = 8082; // HTTP port for VLC
-
-  List<HttpResponse> _clients = [];
   bool isStreaming = false;
 
   String ssid = 'X4 1G3PYC.OSC';
@@ -55,9 +48,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-
     initializeCameraSdk();
-    //starthttp();
 
     // Mock data for testing
   }
@@ -70,216 +61,46 @@ class _MyHomePageState extends State<MyHomePage> {
     super.dispose();
   }
 
-  List<int>? spsHeader;
-  List<int>? ppsHeader;
-  int findNextStartCode(List<int> data, int start) {
-    final List<int> startCode = [0x00, 0x00, 0x00, 0x01];
 
-    for (int i = start; i < data.length - 4; i++) {
-      if (data.sublist(i, i + 4).every(
-          (byte) => byte == startCode[data.sublist(i, i + 4).indexOf(byte)])) {
-        return i;
-      }
-    }
-    return data.length; // Return end of data if no start code found
-  }
-
-  void extractSpsPps(List<int> h264Data) {
-    final List<int> startCode = [0x00, 0x00, 0x00, 0x01]; // H.264 Start Code
-    int index = 0;
-
-    while (index < h264Data.length - 4) {
-      // Check if current position is a start code
-      if (h264Data.sublist(index, index + 4).every((byte) =>
-          byte ==
-          startCode[h264Data.sublist(index, index + 4).indexOf(byte)])) {
-        int nalType = h264Data[index + 4] & 0x1F; // Extract NAL unit type
-
-        if (nalType == 7) {
-          // SPS
-          print("📌 SPS Found at index $index");
-          int spsEnd = findNextStartCode(h264Data, index + 4);
-          spsHeader = h264Data.sublist(index, spsEnd);
-        } else if (nalType == 8) {
-          // PPS
-          print("📌 PPS Found at index $index");
-          int ppsEnd = findNextStartCode(h264Data, index + 4);
-          ppsHeader = h264Data.sublist(index, ppsEnd);
-        }
-      }
-      index++;
-    }
-
-    if (spsHeader != null && ppsHeader != null) {
-      print("✅ Extracted SPS: $spsHeader");
-      print("✅ Extracted PPS: $ppsHeader");
-    } else {
-      print("❌ SPS or PPS not found!");
-    }
-  }
 
   void initializeCameraSdk() {
     final activity = JObject.fromReference(Jni.getCachedApplicationContext());
 
     InstaCameraSDK.init(activity);
-    InstaMediaSDK.init(activity);
-    final capturePlayerView = InstaCapturePlayerView(activity);
-
-    listener = IPreviewStatusListener.implement(
-      $IPreviewStatusListener(
-        onOpening: () {
-          print("Preview is opening...");
-        },
-        onOpened: () async {
-          print("Preview has started.");
-
-          final cameraManager = InstaCameraManager.getInstance();
-          cameraManager.setStreamEncode();
-          final pipeline = capturePlayerView.getPipeline();
-
-          cameraManager.setPipeline(pipeline);
-
-          // capturePlayerView.setPlayerViewListener(
-          //     PlayerViewListener.implement($PlayerViewListener(
-          //   onReleaseCameraPipeline: () {},
-          //   onFail: (i, string) {},
-          //   onLoadingStatusChanged: (z) {},
-          //   onLoadingFinish: () {
-          //     print("loading");
-          //     final pipeline = capturePlayerView.getPipeline();
-
-          //     cameraManager.setPipeline(pipeline);
-          //   },
-          // )));
-
-          // capturePlayerView.prepare(createParams());
-          // capturePlayerView.play();
-        },
-        onIdle: () {
-          print("Preview is idle...");
-        },
-        onError: () {
-          print("An error occurred...");
-        },
-        onVideoData: (videoData) {
-          // Convert JArray<jbyte> to List<int>
-          List<int> frameData = List<int>.generate(
-              videoData.data.length, (i) => videoData.data[i] & 0xFF);
-
-          // Extract SPS/PPS only once (on first frame)
-          if (spsHeader == null || ppsHeader == null) {
-            extractSpsPps(frameData);
-          }
-
-          // Save frame data to file
-          _saveH264ToFile(frameData);
-        },
-        onGyroData: (gyroDataList) {
-          //   print("Gyro data received: $gyroDataList");
-        },
-        onExposureData: (exposureData) {
-          //  print("Exposure data received: $exposureData");
-        },
-      ),
-    );
   }
 
-  // HTTP clients connected to the server
-  /// Stops the HTTP server and disconnects all VLC clients.
-  Future<void> stop() async {
-    for (final client in _clients) {
-      await client.close();
-    }
-    _clients.clear();
-    print('Streamer stopped');
-  }
+  // void _saveH264ToFile(List<int> frameData) async {
+  //   const String filePath = '/storage/emulated/0/Download/video_stream.h264';
+  //   final File file = File(filePath);
 
-  Future<void> starthttp() async {
-    try {
-      final httpServer =
-          await HttpServer.bind(InternetAddress.loopbackIPv4, httpPort);
-      print('HTTP server started on http://127.0.0.1:$httpPort');
-      httpServer.listen((HttpRequest request) {
-        print('Incoming request: ${request.uri.path}');
-        if (request.uri.path == '/stream') {
-          print('New VLC client connected');
-          _handleHttpConnection(request);
-        } else {
-          request.response
-            ..statusCode = HttpStatus.notFound
-            ..write('Not Found')
-            ..close();
-        }
-      });
-    } catch (e) {
-      print('Failed to start HTTP server: $e');
-    }
-  }
+  //   // Ensure the file exists
+  //   if (!await file.exists()) {
+  //     await file.create();
+  //   }
 
-  void _handleHttpConnection(HttpRequest request) {
-    final response = request.response;
-    response.bufferOutput = false;
+  //   // Identify if it's an I-frame
+  //   bool isIframe = frameData.length > 5 &&
+  //       ((frameData[4] & 0x1F) == 5 || // Standard I-frame
+  //           (frameData[4] & 0x1F) == 19 || // High Profile I-frame
+  //           (frameData[4] & 0x1F) == 20); // Extended I-frame
 
-    response.headers.contentType =
-        ContentType("video", "h264"); // Correct MIME type for raw H.264
-    response.headers.set('Transfer-Encoding', 'chunked');
-    response.headers.set('Cache-Control',
-        'no-store, no-cache, must-revalidate, proxy-revalidate');
-    response.headers.set('Connection', 'keep-alive');
-    response.headers.set('Pragma', 'no-cache');
-    response.headers.set('Expires', '0');
+  //   // Ensure SPS/PPS are added before I-frames
+  //   List<int> finalFrame = frameData;
+  //   if (isIframe && spsHeader != null && ppsHeader != null) {
+  //     print("📌 I-frame detected! Prepending SPS/PPS...");
+  //     finalFrame = [
+  //       ...[0, 0, 0, 1], ...spsHeader!, // SPS header
+  //       ...[0, 0, 0, 1], ...ppsHeader!, // PPS header
+  //       ...[0, 0, 0, 1], ...frameData // Actual I-frame
+  //     ];
+  //   }
 
-    _clients.add(response);
-
-    response.done.whenComplete(() {
-      print('VLC client disconnected');
-      _clients.remove(response);
-    });
-  }
-
-  void _saveH264ToFile(List<int> frameData) async {
-    final directory = await AndroidPathProvider.downloadsPath;
-    final String filePath = '$directory/video_stream.h264';
-    final File file = File(filePath);
-
-    bool isIframe = frameData.length > 4 &&
-        ((frameData[4] & 0x1F) == 5); // Check for I-frame
-
-    List<int> finalFrame = frameData;
-
-    if (isIframe && spsHeader != null && ppsHeader != null) {
-      print("📌 I-frame detected! Prepending SPS/PPS...");
-      finalFrame = [...spsHeader!, ...ppsHeader!, ...frameData];
-    }
-
-    try {
-      // Append frame data without overwriting
-      await file.writeAsBytes(finalFrame, mode: FileMode.append, flush: true);
-      print("✅ Video frame written: ${finalFrame.length} bytes");
-    } catch (e) {
-      print("❌ Error writing to file: $e");
-    }
-  }
-
-  // void _broadcastToClients(Uint8List data) {
-  //   final Uint8List nalUnitStart = Uint8List.fromList([0, 0, 0, 1]);
-  //   bool isIframe = (data.length > 4) && ((data[4] & 0x1F) == 5);
-
-  //   for (final client in _clients) {
-  //     print("Detected I-frame, adding SPS/PPS headers...");
-
-  //     if (spsHeader != null && ppsHeader != null) {
-  //       Uint8List fullFrame = Uint8List.fromList([
-  //         ...nalUnitStart, // NAL start sequence
-  //         ...spsHeader!, // SPS header
-  //         ...nalUnitStart, // NAL start sequence
-  //         ...ppsHeader!, // PPS header
-  //         ...data // Actual frame data
-  //       ]);
-
-  //       client.add(fullFrame);
-  //       _saveH264ToFile(fullFrame); // Save fixed video for debugging
-  //     }
+  //   try {
+  //     // Append data without overwriting
+  //     await file.writeAsBytes(finalFrame, mode: FileMode.append, flush: true);
+  //     print("✅ Video frame written: ${finalFrame.length} bytes");
+  //   } catch (e) {
+  //     print("❌ Error writing to file: $e");
   //   }
   // }
 
@@ -303,15 +124,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
     // Request payload
     final Map<String, dynamic> payload = {
-      "name": "camera.takePicture",
-      // "parameters": {
-      //   "options": {
-      //     "captureMode": "image",
-      //     "hdr": "hdr",
-      //     "photoStitching":
-      //         "ondevice" //add this option only when on-device stitching is supported
-      //   }
-      // }
+      "name": "camera.getOptions",
+      "parameters": {
+        "optionNames": ["photoStitching"]
+      }
     };
 
     // Initialize Dio with optional timeout settings
@@ -423,10 +239,6 @@ class _MyHomePageState extends State<MyHomePage> {
             // Start recording button
             ElevatedButton(
               onPressed: () {
-                InstaCameraManager.getInstance()
-                    .setPreviewStatusChangedListener(listener);
-                InstaCameraManager.getInstance().startPreviewStream();
-
                 setState(() {
                   isStreaming = true;
                 });
@@ -451,20 +263,21 @@ class _MyHomePageState extends State<MyHomePage> {
                 },
                 child: Text('Live Stream Page')),
             ElevatedButton(
-              onPressed: () {
-                List<PreviewStreamResolution> supportedList =
-                    InstaCameraManager.getInstance()
-                        .getSupportedPreviewStreamResolution(0);
-                print(supportedList);
+              onPressed: () async {
+                // List<PreviewStreamResolution> supportedList =
+                //     InstaCameraManager.getInstance()
+                //         .getSupportedPreviewStreamResolution(0);
+                // print(supportedList);
 
-                //   PreviewStreamResolution.STREAM_1440_720_30FPS
+                // //   PreviewStreamResolution.STREAM_1440_720_30FPS
 
-                List<PreviewStreamResolution> supportedList2 =
-                    InstaCameraManager.getInstance()
-                        .getSupportedPreviewStreamResolution(
-                            InstaCameraManager.PREVIEW_TYPE_LIVE);
+                // List<PreviewStreamResolution> supportedList2 =
+                //     InstaCameraManager.getInstance()
+                //         .getSupportedPreviewStreamResolution(
+                //             InstaCameraManager.PREVIEW_TYPE_LIVE);
 
-                print(supportedList2);
+                // print(supportedList2);
+                setCameraOptions();
               },
               child: const Text('get'),
             ),
@@ -473,28 +286,4 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
-}
-
-Uint8List convertJArrayToUint8List(JArray<jbyte> javaArray) {
-  final int length = javaArray.length;
-  final Uint8List result = Uint8List(length);
-
-  // Convert each signed byte to unsigned (jbyte in Java is signed, Uint8List is unsigned)
-  for (int i = 0; i < length; i++) {
-    result[i] = (javaArray[i] & 0xFF); // Ensures values are within 0-255 range
-  }
-
-  return result;
-}
-
-CaptureParamsBuilder createParams() {
-  CaptureParamsBuilder builder = new CaptureParamsBuilder()
-      .setCameraType(InstaCameraManager.getInstance().getCameraType())
-      .setMediaOffset(InstaCameraManager.getInstance().getMediaOffset())
-      .setMediaOffsetV2(InstaCameraManager.getInstance().getMediaOffsetV2())
-      .setMediaOffsetV3(InstaCameraManager.getInstance().getMediaOffsetV3())
-      .setCameraSelfie(InstaCameraManager.getInstance().isCameraSelfie())
-      .setGyroTimeStamp(InstaCameraManager.getInstance().getGyroTimeStamp())
-      .setBatteryType(InstaCameraManager.getInstance().getBatteryType());
-  return builder;
 }
