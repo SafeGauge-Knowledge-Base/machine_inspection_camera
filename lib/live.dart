@@ -1,305 +1,175 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:collection';
 import 'dart:typed_data';
-import 'dart:ui';
-import 'package:flutter/material.dart';
-import 'package:flutter_vlc_player/flutter_vlc_player.dart';
-import 'package:jni/jni.dart';
-import 'package:machine_inspection_camera/sdkcamera_bindings.dart';
 
-class LiveStreamPage extends StatefulWidget {
-  const LiveStreamPage({super.key});
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:panorama_viewer/panorama_viewer.dart';
+
+class ThetaLivePreview extends StatefulWidget {
+  const ThetaLivePreview({super.key});
 
   @override
-  State<LiveStreamPage> createState() => _LiveStreamPageState();
+  _ThetaLivePreviewState createState() => _ThetaLivePreviewState();
 }
 
-class _LiveStreamPageState extends State<LiveStreamPage> {
-  late VlcPlayerController _videoPlayerController;
-  bool isListening = false;
+class _ThetaLivePreviewState extends State<ThetaLivePreview> {
+  final String baseUrl = 'http://192.168.1.1';
+  final String endpoint = '/osc/commands/execute';
+  Dio dio = Dio();
 
-  late IPreviewStatusListener listener;
+  /// Receives frames to show in UI
+  late StreamController<Uint8List> _imageStreamController;
 
-  List<int>? spsHeader;
-  List<int>? ppsHeader;
-  List<HttpResponse> _clients = [];
-  final int httpPort = 8082; // HTTP port for VLC
+  /// Controls streaming lifecycle
+  bool _isStreaming = false;
 
-  Future<void> starthttp() async {
-    try {
-      final httpServer =
-          await HttpServer.bind(InternetAddress.loopbackIPv4, httpPort);
-      print('HTTP server started on http://127.0.0.1:$httpPort');
-      httpServer.listen((HttpRequest request) {
-        print('Incoming request: ${request.uri.path}');
-        if (request.uri.path == '/stream') {
-          print('New VLC client connected');
-          _handleHttpConnection(request);
-        } else {
-          request.response
-            ..statusCode = HttpStatus.notFound
-            ..write('Not Found')
-            ..close();
-        }
-      });
-    } catch (e) {
-      print('Failed to start HTTP server: $e');
-    }
-  }
+  /// Collects incoming byte data for MJPEG parsing
+  List<int> _bufferBytes = [];
+  int? _startIndex;
+  int? _endIndex;
 
-  void _handleHttpConnection(HttpRequest request) {
-    final response = request.response;
-
-    response.statusCode = HttpStatus.ok; // 200
-    response.reasonPhrase = 'OK';
-
-    response.headers.set('Content-Type', 'video/h264');
-    response.headers.set('Transfer-Encoding', 'chunked');
-    response.headers.set('Cache-Control', 'no-cache');
-    response.headers.set('Pragma', 'no-cache');
-    response.headers.set('Expires', '0');
-    response.headers.set('Connection', 'keep-alive');
-
-    // Ensure CORS (if needed)
-    response.headers.set('Access-Control-Allow-Origin', '*');
-
-    _clients.add(response);
-    response.done.whenComplete(() {
-      print('VLC client disconnected');
-      _clients.remove(response);
-    });
-
-    print("✅ New VLC client connected. Streaming started.");
-  }
+  /// Queue for storing frames
+  final Queue<Uint8List> _frameQueue = Queue<Uint8List>();
 
   @override
   void initState() {
     super.initState();
-    starthttp();
-
-    listener = IPreviewStatusListener.implement(
-      $IPreviewStatusListener(
-        onOpening: () {
-          print("Preview is opening...");
-        },
-        onOpened: () async {
-          print("Preview has started.");
-
-          // final pipeline = capturePlayerView.getPipeline();
-
-          // cameraManager.setPipeline(pipeline);
-
-          // capturePlayerView.setPlayerViewListener(
-          //     PlayerViewListener.implement($PlayerViewListener(
-          //   onReleaseCameraPipeline: () {},
-          //   onFail: (i, string) {},
-          //   onLoadingStatusChanged: (z) {},
-          //   onLoadingFinish: () {
-          //     print("loading");
-          //     final pipeline = capturePlayerView.getPipeline();
-
-          //     cameraManager.setPipeline(pipeline);
-          //   },
-          // )));
-
-          // capturePlayerView.prepare(createParams());
-          // capturePlayerView.play();
-        },
-        onIdle: () {
-          print("Preview is idle...");
-        },
-        onError: () {
-          print("An error occurred...");
-        },
-        onVideoData: (videoData) {
-          handleVideoData(videoData.data);
-
-          // print("📌 Video data received: ${frameData.length} bytes");
-        },
-        onGyroData: (gyroDataList) {
-          //   print("Gyro data received: $gyroDataList");
-        },
-        onExposureData: (exposureData) {
-          //  print("Exposure data received: $exposureData");
-        },
-      ),
-    );
-    startstream();
-    final cameraManager = InstaCameraManager.getInstance();
-    cameraManager.setPreviewStatusChangedListener(listener);
-    cameraManager.startPreviewStream();
-    cameraManager.setStreamEncode();
+    _imageStreamController = StreamController<Uint8List>();
+    startLivePreview();
   }
 
-  // HTTP clients connected to the server
-  /// Stops the HTTP server and disconnects all VLC clients.
-  Future<void> stop() async {
-    for (final client in _clients) {
-      await client.close();
-    }
-    _clients.clear();
-    print('Streamer stopped');
-  }
+  /// Starts the camera’s live preview request
+  void startLivePreview() async {
+    if (_isStreaming) return;
+    _isStreaming = true;
 
-  void extractSpsPps(List<int> h264Data) {
-    int index = 0;
+    final headers = {
+      'Content-Type': 'application/json;charset=utf-8',
+      'Accept': 'application/json',
+      'X-XSRF-Protected': '1',
+    };
 
-    while (index < h264Data.length - 4) {
-      if (h264Data[index] == 0x00 &&
-          h264Data[index + 1] == 0x00 &&
-          h264Data[index + 2] == 0x00 &&
-          h264Data[index + 3] == 0x01) {
-        int nalType = h264Data[index + 4] & 0x1F;
+    final Map<String, dynamic> payload = {"name": "camera.getLivePreview"};
 
-        if (nalType == 7) {
-          // SPS
-          int nextNal = findNextStartCode(h264Data, index + 4);
-          spsHeader = h264Data.sublist(index + 4, nextNal);
-          print("✅ SPS Extracted: ${spsHeader!.length} bytes");
-        } else if (nalType == 8) {
-          // PPS
-          int nextNal = findNextStartCode(h264Data, index + 4);
-          ppsHeader = h264Data.sublist(index + 4, nextNal);
-          print("✅ PPS Extracted: ${ppsHeader!.length} bytes");
-        }
-      }
-      index++;
-    }
-  }
-
-  int findNextStartCode(List<int> data, int start) {
-    for (int i = start; i < data.length - 4; i++) {
-      if (data[i] == 0x00 &&
-          data[i + 1] == 0x00 &&
-          data[i + 2] == 0x00 &&
-          data[i + 3] == 0x01) {
-        return i;
-      }
-    }
-    return data.length; // No next start code found
-  }
-
-  void _broadcastToClients(List<int> frameData) {
-    bool isIframe = isIframetest(frameData);
-    List<int> finalFrame = frameData;
-
-    if (isIframe && spsHeader != null && ppsHeader != null) {
-      finalFrame = [
-        0,
-        0,
-        0,
-        1,
-        ...spsHeader!,
-        0,
-        0,
-        0,
-        1,
-        ...ppsHeader!,
-        ...frameData
-      ];
-    }
-
-    Uint8List optimizedFrame =
-        Uint8List.fromList(finalFrame); // Efficient buffer
-    for (final client in _clients) {
-      client.add(optimizedFrame);
-    }
-  }
-
-  void handleVideoData(JArray<jbyte> videoData) {
-    List<int> frameData =
-        List<int>.generate(videoData.length, (i) => videoData[i] & 0xFF);
-
-    if (spsHeader == null || ppsHeader == null) {
-      extractSpsPps(frameData);
-    }
-
-    if (isIframetest(frameData)) {
-      print("📌 I-frame detected! Sending to VLC.");
-    }
-
-    _broadcastToClients(frameData);
-  }
-
-  Future<void> startstream() async {
-    const streamUrl = 'http://127.0.0.1:8082/stream';
-
-    _videoPlayerController = VlcPlayerController.network(
-      streamUrl,
-      hwAcc: HwAcc.full,
-      autoPlay: true,
-      options: VlcPlayerOptions(
-        http: VlcHttpOptions([
-          VlcHttpOptions.httpContinuous(true),
-        ]),
-        advanced: VlcAdvancedOptions([
-          VlcAdvancedOptions.networkCaching(500), // Reduce caching to 500ms
-          VlcAdvancedOptions.liveCaching(500),
-          VlcAdvancedOptions.fileCaching(500),
-          VlcAdvancedOptions.clockJitter(10), // Reduce jitter
-          VlcAdvancedOptions.clockSynchronization(10),
-        ]),
-        extras: [
-          '--rtsp-tcp', // Ensure TCP streaming
-          '--no-video-title-show', // Disable title overlay
-          '--avcodec-fast', // Enable fast decoding
-        ],
-      ),
-    );
-
-    setState(() {
-      isListening = true;
-    });
-  }
-
-  Future<bool> checkStreamAvailable(String url) async {
     try {
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
-      return response.statusCode == 200;
+      Response<ResponseBody> response = await dio.post<ResponseBody>(
+        '$baseUrl$endpoint',
+        data: payload,
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.stream, // Expecting an MJPEG stream
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        // Start listening to the MJPEG stream immediately
+        _processMJPEGStream(response.data!);
+        _playFramesFromQueue();
+      } else {
+        debugPrint(
+            'Failed to start live preview. Status: ${response.statusCode}');
+      }
     } catch (e) {
-      print('Stream check failed: $e');
-      return false;
+      debugPrint('Error starting live preview: $e');
+    }
+  }
+
+  /// Continuously parses the incoming MJPEG stream and adds complete JPEG frames to _frameQueue
+  void _processMJPEGStream(ResponseBody responseBody) {
+    responseBody.stream.listen(
+      (List<int> data) {
+        _bufferBytes.addAll(data); // Append incoming data
+
+        // Attempt to find JPEG start (FFD8) and end (FFD9) markers
+        for (int i = 0; i < data.length - 1; i++) {
+          // JPEG Start?
+          if (data[i] == 0xFF && data[i + 1] == 0xD8) {
+            _startIndex = _bufferBytes.length - (data.length - i);
+          }
+          // JPEG End?
+          if (data[i] == 0xFF && data[i + 1] == 0xD9 && _startIndex != null) {
+            _endIndex = _bufferBytes.length;
+
+            if (_endIndex! > _startIndex!) {
+              // Extract JPEG frame
+              Uint8List frame = Uint8List.fromList(
+                _bufferBytes.sublist(_startIndex!, _endIndex!),
+              );
+
+              // Add to our queue
+              _frameQueue.add(frame);
+
+              // Remove processed bytes from buffer
+              _bufferBytes = _bufferBytes.sublist(_endIndex!);
+
+              // Reset
+              _startIndex = null;
+              _endIndex = null;
+            }
+          }
+        }
+      },
+      onError: (error) {
+        debugPrint("Stream Error: $error");
+      },
+      cancelOnError: true,
+    );
+  }
+
+  /// Plays frames from the queue at ~30 FPS immediately
+  void _playFramesFromQueue() async {
+    while (_isStreaming) {
+      if (_frameQueue.isNotEmpty) {
+        // Pop the oldest frame
+        final frame = _frameQueue.removeFirst();
+        // Send the frame to the UI
+        _imageStreamController.add(frame);
+
+        // Aim for ~30 FPS
+        //await Future.delayed(const Duration(milliseconds: 33));
+      } else {
+        // If queue is empty, wait briefly to avoid unnecessary CPU usage
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
     }
   }
 
   @override
   void dispose() {
-    _videoPlayerController.dispose(); // Properly dispose of the controller
+    _isStreaming = false;
+    _imageStreamController.close();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Live Stream')),
+      appBar: AppBar(title: const Text("RICOH THETA Live Preview")),
       body: Center(
-        child: isListening
-            ? VlcPlayer(
-                controller: _videoPlayerController,
-                aspectRatio: 16 / 9,
-                placeholder: const Center(
-                  child: Text(
-                    'Initializing stream...',
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
+        child: StreamBuilder<Uint8List>(
+          stream: _imageStreamController.stream,
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return ClipRect(
+                // Crops the edges
+                child: SizedBox(
+                  width: 800, // Fixed square size
+                  height: 500,
+                  child: PanoramaViewer(
+                    child: Image.memory(
+                      snapshot.data!,
+                      fit: BoxFit.cover, // Crops and zooms in the image
+                    ),
                   ),
                 ),
-              )
-            : const CircularProgressIndicator(),
+              );
+            } else {
+              return const CircularProgressIndicator();
+            }
+          },
+        ),
       ),
     );
   }
-}
-
-bool isIframetest(List<int> frameData) {
-  if (frameData.length < 5) return false;
-  final int nalType = frameData[4] & 0x1F;
-  bool result = (nalType == 5 || nalType == 19 || nalType == 20);
-
-  if (result) {
-    print("📌 I-frame detected with NAL type: $nalType");
-  }
-
-  return result;
 }

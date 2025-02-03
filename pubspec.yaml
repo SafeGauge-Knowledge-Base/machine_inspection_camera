@@ -43,7 +43,12 @@ dependencies:
   jnigen: ^0.12.1
   panorama_viewer: ^1.0.6
   path_provider: ^2.1.5
-
+  media_kit: ^1.1.11 # Primary package.
+  media_kit_video: ^1.2.5 # For video rendering.
+  media_kit_libs_video: ^1.0.5 # Native video dependencies.
+  flutter_webrtc: ^0.12.7
+  flutter_bloc: ^9.0.0
+  equatable: ^2.0.7
 dev_dependencies:
   flutter_test:
     sdk: flutter
